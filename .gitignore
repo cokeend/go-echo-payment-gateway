@@ -1,0 +1,35 @@
+# Binary
+/payment-api
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go
+/vendor/
+*.test
+*.out
+go.work
+go.work.sum
+
+# Environment
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+pgdata/
+
+# Temp
+*.log
+tmp/

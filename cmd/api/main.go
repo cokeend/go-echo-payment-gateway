@@ -59,7 +59,7 @@ func main() {
 		AllowOrigins: []string{"*"},
 	}))
 
-	paymentHandler.RegisterRoutes(e)
+	paymentHandler.RegisterRoutes(e, cfg.APIKey)
 
 	e.GET("/health", func(c *echo.Context) error {
 		return c.JSON(200, map[string]string{"status": "ok"})

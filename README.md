@@ -5,15 +5,18 @@ Payment Gateway REST API built with Go, Echo v5, Stripe, and PostgreSQL.
 ## Project Structure
 
 ```
-├── cmd/api/main.go                          # Entrypoint & dependency injection
+├── cmd/api/main.go                                    # Entrypoint & dependency injection
 ├── internal
-│   ├── domain/payment.go                    # Entities & interfaces
+│   ├── config/config.go                               # Environment configuration
+│   ├── domain/payment.go                              # Entities & interfaces
 │   ├── payment
-│   │   ├── usecase/payment_uc.go            # Business logic
-│   │   ├── repository/postgres_repo.go      # PostgreSQL persistence
-│   │   ├── delivery/http/payment_handler.go # Echo HTTP handlers
-│   │   └── gateway/stripe_gw.go             # Stripe integration
-├── pkg/stripe_util/                         # Stripe helper utilities
+│   │   ├── usecase/payment_uc.go                      # Business logic
+│   │   ├── repository/postgres_repo.go                # PostgreSQL persistence (GORM)
+│   │   ├── delivery/http/
+│   │   │   ├── payment_handler.go                     # Echo HTTP handlers
+│   │   │   └── middleware/apikey.go                    # Static API Key authentication
+│   │   └── gateway/stripe_gw.go                       # Stripe integration
+├── pkg/stripe_util/                                   # Stripe helper utilities
 ├── Dockerfile
 └── docker-compose.yml
 ```
@@ -22,7 +25,8 @@ Payment Gateway REST API built with Go, Echo v5, Stripe, and PostgreSQL.
 
 - **Go 1.25** with Echo v5
 - **Stripe** Checkout Session + PaymentIntent
-- **PostgreSQL 17** for persistence
+- **PostgreSQL 17** with GORM
+- **Static API Key** authentication
 - **Docker Compose** for local development
 
 ## Getting Started
@@ -38,9 +42,10 @@ Payment Gateway REST API built with Go, Echo v5, Stripe, and PostgreSQL.
 # 1. Create .env from example
 cp .env.example .env
 
-# 2. Set your Stripe keys in .env
+# 2. Set your keys in .env
 #    STRIPE_SECRET_KEY=sk_test_xxx
 #    STRIPE_WEBHOOK_SECRET=whsec_xxx
+#    API_KEY=your-secret-api-key
 
 # 3. Start services
 docker compose up --build
@@ -56,6 +61,7 @@ API will be available at `http://localhost:8080`.
 export DATABASE_URL="postgres://postgres:postgres@localhost:5432/payments?sslmode=disable"
 export STRIPE_SECRET_KEY="sk_test_xxx"
 export STRIPE_WEBHOOK_SECRET="whsec_xxx"
+export API_KEY="your-secret-api-key"
 
 go run ./cmd/api
 ```
@@ -67,23 +73,47 @@ go run ./cmd/api
 | `DATABASE_URL` | PostgreSQL connection string | `postgres://postgres:postgres@localhost:5432/payments?sslmode=disable` |
 | `STRIPE_SECRET_KEY` | Stripe secret API key | (required) |
 | `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret | (optional) |
+| `API_KEY` | Static API key for authenticating requests | (required) |
 | `PORT` | HTTP server port | `8080` |
+| `APP_ENV` | Application environment | `development` |
+
+## Authentication
+
+All API endpoints (except health check and webhook) require a static API key. Send the key using one of these methods:
+
+**Authorization header (recommended):**
+
+```bash
+curl -H "Authorization: Bearer YOUR_API_KEY" http://localhost:8080/api/v1/payments
+```
+
+**X-API-Key header:**
+
+```bash
+curl -H "X-API-Key: YOUR_API_KEY" http://localhost:8080/api/v1/payments
+```
+
+Unauthorized requests return `401`:
+
+```json
+{ "success": false, "error": "invalid api key" }
+```
 
 ## API Endpoints
 
-### Health Check
+### Health Check (no auth)
 
 ```
 GET /health
 ```
 
-### Checkout (Stripe Hosted Page)
+### Checkout (requires API key)
 
 | Method | Endpoint | Description |
 |---|---|---|
 | `POST` | `/api/v1/checkout` | Create checkout session with Stripe payment URL |
 
-### Payments
+### Payments (requires API key)
 
 | Method | Endpoint | Description |
 |---|---|---|
@@ -94,7 +124,7 @@ GET /health
 | `POST` | `/api/v1/payments/:id/cancel` | Cancel a payment |
 | `POST` | `/api/v1/payments/:id/refund` | Refund a payment |
 
-### Webhook
+### Webhook (no auth, uses Stripe signature)
 
 | Method | Endpoint | Description |
 |---|---|---|
@@ -110,6 +140,7 @@ The `payment_methods` field is optional. If omitted, Stripe will show all availa
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/checkout \
+  -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "amount": 1000,
@@ -152,6 +183,7 @@ For custom frontend integrations using Stripe.js / Stripe Elements. Returns a `c
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/payments \
+  -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "amount": 1000,
@@ -185,31 +217,36 @@ curl -X POST http://localhost:8080/api/v1/payments \
 ### Get Payment
 
 ```bash
-curl http://localhost:8080/api/v1/payments/{id}
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+  http://localhost:8080/api/v1/payments/{id}
 ```
 
 ### List Payments
 
 ```bash
-curl "http://localhost:8080/api/v1/payments?limit=10&offset=0"
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+  "http://localhost:8080/api/v1/payments?limit=10&offset=0"
 ```
 
 ### Confirm Payment
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/payments/{id}/confirm
+curl -X POST -H "Authorization: Bearer YOUR_API_KEY" \
+  http://localhost:8080/api/v1/payments/{id}/confirm
 ```
 
 ### Cancel Payment
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/payments/{id}/cancel
+curl -X POST -H "Authorization: Bearer YOUR_API_KEY" \
+  http://localhost:8080/api/v1/payments/{id}/cancel
 ```
 
 ### Refund Payment
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/payments/{id}/refund \
+  -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"amount": 500}'
 ```

@@ -11,6 +11,7 @@ type Config struct {
 	DatabaseURL         string
 	StripeSecretKey     string
 	StripeWebhookSecret string
+	APIKey              string
 	Port                string
 	AppEnv              string
 }
@@ -24,6 +25,7 @@ func Load() (*Config, error) {
 		DatabaseURL:         getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/payments?sslmode=disable"),
 		StripeSecretKey:     getEnv("STRIPE_SECRET_KEY", ""),
 		StripeWebhookSecret: getEnv("STRIPE_WEBHOOK_SECRET", ""),
+		APIKey:              getEnv("API_KEY", ""),
 		Port:                getEnv("PORT", "8080"),
 		AppEnv:              getEnv("APP_ENV", "development"),
 	}
@@ -49,6 +51,9 @@ func (c *Config) validate() error {
 	}
 	if c.DatabaseURL == "" {
 		return fmt.Errorf("DATABASE_URL is required")
+	}
+	if c.APIKey == "" {
+		return fmt.Errorf("API_KEY is required")
 	}
 	return nil
 }

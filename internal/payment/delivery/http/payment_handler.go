@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"go-payment-gateway/internal/domain"
+	apimw "go-payment-gateway/internal/payment/delivery/http/middleware"
 
 	"github.com/labstack/echo/v5"
 )
@@ -20,9 +21,10 @@ func NewPaymentHandler(uc domain.PaymentUseCase) *PaymentHandler {
 }
 
 // RegisterRoutes wires all payment endpoints into the Echo router.
-func (h *PaymentHandler) RegisterRoutes(e *echo.Echo) {
-	g := e.Group("/api/v1/payments")
+func (h *PaymentHandler) RegisterRoutes(e *echo.Echo, apiKey string) {
+	auth := apimw.APIKeyAuth(apimw.APIKeyConfig{Key: apiKey})
 
+	g := e.Group("/api/v1/payments", auth)
 	g.POST("", h.CreatePayment)
 	g.GET("", h.ListPayments)
 	g.GET("/:id", h.GetPayment)
@@ -30,7 +32,9 @@ func (h *PaymentHandler) RegisterRoutes(e *echo.Echo) {
 	g.POST("/:id/cancel", h.CancelPayment)
 	g.POST("/:id/refund", h.RefundPayment)
 
-	e.POST("/api/v1/checkout", h.CreateCheckout)
+	e.POST("/api/v1/checkout", h.CreateCheckout, auth)
+
+	// Webhook uses Stripe signature verification, no API key needed
 	e.POST("/api/v1/webhook/stripe", h.HandleStripeWebhook)
 }
 

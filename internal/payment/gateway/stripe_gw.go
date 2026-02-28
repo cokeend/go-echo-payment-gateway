@@ -17,7 +17,15 @@ type StripeGateway struct {
 }
 
 func NewStripeGateway(apiKey, webhookSecret string) *StripeGateway {
-	client := stripe.NewClient(apiKey)
+	// Retry up to 5 times on 429 (rate limit), 500, 503 with exponential backoff
+	backend := stripe.GetBackendWithConfig(stripe.APIBackend, &stripe.BackendConfig{
+		MaxNetworkRetries: stripe.Int64(5),
+	})
+	client := stripe.NewClient(apiKey, stripe.WithBackends(&stripe.Backends{
+		API:     backend,
+		Connect: backend,
+		Uploads: backend,
+	}))
 	return &StripeGateway{
 		client:        client,
 		webhookSecret: webhookSecret,

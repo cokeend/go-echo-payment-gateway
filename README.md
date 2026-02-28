@@ -1,14 +1,19 @@
 # Go Payment Gateway API
 
-Payment Gateway REST API built with Go, Echo v5, Stripe, and PostgreSQL.
+Payment Gateway REST API built with Go, Echo v5, Stripe, PostgreSQL, and Redis (Asynq).
 
 ## Project Structure
 
 ```
-├── cmd/api/main.go                                    # Entrypoint & dependency injection
+├── cmd
+│   ├── api/main.go                                    # HTTP server entrypoint
+│   └── worker/main.go                                 # Asynq worker entrypoint
 ├── internal
 │   ├── config/config.go                               # Environment configuration
 │   ├── domain/payment.go                              # Entities & interfaces
+│   ├── worker/
+│   │   ├── tasks.go                                   # Task type definitions & payloads
+│   │   └── handler.go                                 # Task handlers (webhook processing)
 │   ├── payment
 │   │   ├── usecase/payment_uc.go                      # Business logic
 │   │   ├── repository/postgres_repo.go                # PostgreSQL persistence (GORM)
@@ -26,6 +31,7 @@ Payment Gateway REST API built with Go, Echo v5, Stripe, and PostgreSQL.
 - **Go 1.25** with Echo v5
 - **Stripe** Checkout Session + PaymentIntent
 - **PostgreSQL 17** with GORM
+- **Redis 7** + **Asynq** for async task processing (webhook events)
 - **Static API Key** authentication
 - **Docker Compose** for local development
 
@@ -56,14 +62,18 @@ API will be available at `http://localhost:8080`.
 ### Run locally (without Docker)
 
 ```bash
-# Start PostgreSQL (port 5432)
-# Then:
+# Start PostgreSQL (port 5432) and Redis (port 6379), then:
 export DATABASE_URL="postgres://postgres:postgres@localhost:5432/payments?sslmode=disable"
+export REDIS_URL="redis://localhost:6379/0"
 export STRIPE_SECRET_KEY="sk_test_xxx"
 export STRIPE_WEBHOOK_SECRET="whsec_xxx"
 export API_KEY="your-secret-api-key"
 
+# Terminal 1: Start API server
 go run ./cmd/api
+
+# Terminal 2: Start worker
+go run ./cmd/worker
 ```
 
 ## Environment Variables
@@ -73,6 +83,7 @@ go run ./cmd/api
 | `DATABASE_URL` | PostgreSQL connection string | `postgres://postgres:postgres@localhost:5432/payments?sslmode=disable` |
 | `STRIPE_SECRET_KEY` | Stripe secret API key | (required) |
 | `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret | (optional) |
+| `REDIS_URL` | Redis connection string (Asynq queue) | `redis://localhost:6379/0` |
 | `API_KEY` | Static API key for authenticating requests | (required) |
 | `PORT` | HTTP server port | `8080` |
 | `APP_ENV` | Application environment | `development` |
@@ -270,7 +281,12 @@ Client                    API                     Stripe
   |<-- redirect to success_url --------------------|
   |                        |                        |
   |                        |<-- webhook event -------|
-  |                        |-- update status         |
+  |                        |-- verify sig, return 200|
+  |                        |-- enqueue to Redis      |
+  |                        |                        |
+  |                     Worker                      |
+  |                        |-- process event         |
+  |                        |-- update DB status      |
 ```
 
 ### Flow 2: PaymentIntent (Custom Frontend with Stripe.js)
@@ -288,8 +304,36 @@ Client                    API                     Stripe
   |-- stripe.confirmCardPayment(client_secret) ---->|
   |                        |                        |
   |                        |<-- webhook event -------|
-  |                        |-- update status         |
+  |                        |-- verify sig, return 200|
+  |                        |-- enqueue to Redis      |
+  |                        |                        |
+  |                     Worker                      |
+  |                        |-- process event         |
+  |                        |-- update DB status      |
 ```
+
+### Async Webhook Processing (Asynq + Redis)
+
+Webhook events are processed asynchronously to ensure fast responses to Stripe (< 1s) and prevent timeout issues.
+
+```
+Stripe ──webhook──→ API Server ──verify sig──→ respond 200
+                                     │
+                                     ▼
+                               Redis Queue
+                                     │
+                                     ▼
+                              Worker Process
+                            (concurrency: 10)
+                                     │
+                                     ▼
+                              Update Database
+```
+
+- **Verify first**: Stripe signature is validated immediately; invalid payloads are rejected
+- **Enqueue**: Verified events are pushed to Redis via Asynq with up to 5 retries
+- **Fallback**: If Redis is unavailable, the API processes the event synchronously
+- **Priority queues**: `critical` (webhook), `default`, `low`
 
 ## Supported Payment Methods
 

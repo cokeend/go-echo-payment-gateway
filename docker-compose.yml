@@ -1,16 +1,54 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      args:
+        BUILD_TARGET: api
     ports:
       - "8080:8080"
     environment:
-      DATABASE_URL: postgres://:postgres@db:5432/payments?sslmode=disable
+      DATABASE_URL: postgres://postgres:postgres@db:5432/payments?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      API_KEY: ${API_KEY}
       PORT: "8080"
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      args:
+        BUILD_TARGET: worker
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/payments?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET}
+      API_KEY: ${API_KEY}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped
 
   db:
@@ -32,3 +70,4 @@ services:
 
 volumes:
   pgdata:
+  redisdata:

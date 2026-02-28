@@ -1,5 +1,6 @@
 # Binary
 /payment-api
+/payment-worker
 *.exe
 *.exe~
 *.dll
@@ -29,6 +30,7 @@ Thumbs.db
 
 # Docker
 pgdata/
+redisdata/
 
 # Temp
 *.log

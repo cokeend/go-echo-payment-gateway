@@ -11,6 +11,7 @@ type Config struct {
 	DatabaseURL         string
 	StripeSecretKey     string
 	StripeWebhookSecret string
+	RedisURL            string
 	APIKey              string
 	Port                string
 	AppEnv              string
@@ -25,6 +26,7 @@ func Load() (*Config, error) {
 		DatabaseURL:         getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/payments?sslmode=disable"),
 		StripeSecretKey:     getEnv("STRIPE_SECRET_KEY", ""),
 		StripeWebhookSecret: getEnv("STRIPE_WEBHOOK_SECRET", ""),
+		RedisURL:            getEnv("REDIS_URL", "redis://localhost:6379/0"),
 		APIKey:              getEnv("API_KEY", ""),
 		Port:                getEnv("PORT", "8080"),
 		AppEnv:              getEnv("APP_ENV", "development"),

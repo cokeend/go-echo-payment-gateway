@@ -5,19 +5,23 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"go-payment-gateway/internal/domain"
 	apimw "go-payment-gateway/internal/payment/delivery/http/middleware"
+	"go-payment-gateway/internal/worker"
 
+	"github.com/hibiken/asynq"
 	"github.com/labstack/echo/v5"
 )
 
 type PaymentHandler struct {
-	uc domain.PaymentUseCase
+	uc    domain.PaymentUseCase
+	queue *asynq.Client
 }
 
-func NewPaymentHandler(uc domain.PaymentUseCase) *PaymentHandler {
-	return &PaymentHandler{uc: uc}
+func NewPaymentHandler(uc domain.PaymentUseCase, queue *asynq.Client) *PaymentHandler {
+	return &PaymentHandler{uc: uc, queue: queue}
 }
 
 // RegisterRoutes wires all payment endpoints into the Echo router.
@@ -176,10 +180,35 @@ func (h *PaymentHandler) HandleStripeWebhook(c *echo.Context) error {
 		return c.JSON(http.StatusBadRequest, apiResponse{Error: "missing Stripe-Signature header"})
 	}
 
-	if err := h.uc.HandleWebhook(c.Request().Context(), body, signature); err != nil {
-		slog.Error("webhook handling failed", "error", err)
+	// Verify signature immediately, reject invalid payloads
+	event, err := h.uc.VerifyWebhook(body, signature)
+	if err != nil {
+		slog.Error("webhook verification failed", "error", err)
 		return c.JSON(http.StatusBadRequest, apiResponse{Error: err.Error()})
 	}
 
+	// Enqueue for async processing by worker
+	task, err := worker.NewWebhookTask(event)
+	if err != nil {
+		slog.Error("failed to create webhook task", "error", err)
+		return c.JSON(http.StatusInternalServerError, apiResponse{Error: "failed to enqueue webhook"})
+	}
+
+	info, err := h.queue.Enqueue(task,
+		asynq.MaxRetry(5),
+		asynq.Timeout(30*time.Second),
+		asynq.Queue("critical"),
+	)
+	if err != nil {
+		slog.Error("failed to enqueue webhook task", "error", err)
+		// Fallback: process synchronously if queue is unavailable
+		if procErr := h.uc.ProcessWebhookEvent(c.Request().Context(), event); procErr != nil {
+			slog.Error("fallback webhook processing failed", "error", procErr)
+			return c.JSON(http.StatusInternalServerError, apiResponse{Error: procErr.Error()})
+		}
+		return c.JSON(http.StatusOK, apiResponse{Success: true})
+	}
+
+	slog.Info("webhook task enqueued", "task_id", info.ID, "queue", info.Queue, "type", event.Type)
 	return c.JSON(http.StatusOK, apiResponse{Success: true})
 }

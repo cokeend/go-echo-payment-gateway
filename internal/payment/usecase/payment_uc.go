@@ -183,12 +183,15 @@ func (uc *paymentUseCase) RefundPayment(ctx context.Context, id string, amount i
 	return payment, nil
 }
 
-func (uc *paymentUseCase) HandleWebhook(ctx context.Context, payload []byte, signature string) error {
+func (uc *paymentUseCase) VerifyWebhook(payload []byte, signature string) (*domain.WebhookEvent, error) {
 	event, err := uc.gateway.ConstructWebhookEvent(payload, signature)
 	if err != nil {
-		return fmt.Errorf("construct webhook event: %w", err)
+		return nil, fmt.Errorf("construct webhook event: %w", err)
 	}
+	return event, nil
+}
 
+func (uc *paymentUseCase) ProcessWebhookEvent(ctx context.Context, event *domain.WebhookEvent) error {
 	switch event.Type {
 	case "checkout.session.completed", "checkout.session.async_payment_succeeded":
 		return uc.handleCheckoutSessionEvent(ctx, event)
@@ -198,6 +201,15 @@ func (uc *paymentUseCase) HandleWebhook(ctx context.Context, payload []byte, sig
 		slog.Info("webhook event ignored", "type", event.Type)
 		return nil
 	}
+}
+
+// HandleWebhook is a synchronous fallback: verify + process in one call.
+func (uc *paymentUseCase) HandleWebhook(ctx context.Context, payload []byte, signature string) error {
+	event, err := uc.VerifyWebhook(payload, signature)
+	if err != nil {
+		return err
+	}
+	return uc.ProcessWebhookEvent(ctx, event)
 }
 
 func (uc *paymentUseCase) handleCheckoutSessionEvent(ctx context.Context, event *domain.WebhookEvent) error {
@@ -266,7 +278,7 @@ func validatePaymentMethods(methods []domain.PaymentMethodType, currency string)
 			return fmt.Errorf("unsupported payment method: %s", method)
 		}
 		if msg := stripe_util.ValidateMethodCurrency(method, currency); msg != "" {
-			return fmt.Errorf(msg)
+			return fmt.Errorf("%s", msg)
 		}
 	}
 	return nil

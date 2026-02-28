@@ -122,4 +122,11 @@ type PaymentUseCase interface {
 	RefundPayment(ctx context.Context, id string, amount int64) (*Payment, error)
 	HandleWebhook(ctx context.Context, payload []byte, signature string) error
 	ListPayments(ctx context.Context, limit, offset int) ([]*Payment, error)
+
+	// VerifyWebhook validates the Stripe signature and returns the parsed event
+	// without processing it (for async processing via worker).
+	VerifyWebhook(payload []byte, signature string) (*WebhookEvent, error)
+
+	// ProcessWebhookEvent handles a pre-verified webhook event (called by worker).
+	ProcessWebhookEvent(ctx context.Context, event *WebhookEvent) error
 }

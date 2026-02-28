@@ -10,6 +10,7 @@ import (
 	"go-payment-gateway/internal/payment/repository"
 	"go-payment-gateway/internal/payment/usecase"
 
+	"github.com/hibiken/asynq"
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
 	"gorm.io/driver/postgres"
@@ -46,10 +47,20 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Asynq client (Redis queue)
+	redisOpt, err := asynq.ParseRedisURI(cfg.RedisURL)
+	if err != nil {
+		slog.Error("invalid REDIS_URL", "error", err)
+		os.Exit(1)
+	}
+	queueClient := asynq.NewClient(redisOpt)
+	defer queueClient.Close()
+	slog.Info("connected to redis queue")
+
 	// Dependency injection
 	stripeGW := gateway.NewStripeGateway(cfg.StripeSecretKey, cfg.StripeWebhookSecret)
 	paymentUC := usecase.NewPaymentUseCase(repo, stripeGW)
-	paymentHandler := http.NewPaymentHandler(paymentUC)
+	paymentHandler := http.NewPaymentHandler(paymentUC, queueClient)
 
 	// Echo setup
 	e := echo.New()
